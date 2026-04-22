@@ -23,7 +23,7 @@ const EDIT_TOKEN = '請改成你自己的隨機字串_abc123';
 const SHEETS = {
   project: ['key', 'value'],
   phases: ['order', 'id', 'name', 'start', 'end', 'team', 'color', 'expanded', 'objective'],
-  tasks: ['phase_id', 'task_id', 'name', 'status', 'note'],
+  tasks: ['phase_id', 'task_id', 'name', 'status', 'note', 'due'],
   metrics: ['phase_id', 'order', 'name', 'target'],
   risks: ['phase_id', 'order', 'text']
 };
@@ -92,7 +92,8 @@ function readAll() {
           id: Number(t.task_id),
           name: String(t.name),
           status: String(t.status),
-          note: String(t.note == null ? '' : t.note)
+          note: String(t.note == null ? '' : t.note),
+          due: formatDueDate(t.due)
         })),
       metrics: metricRows
         .filter(m => String(m.phase_id) === String(p.id))
@@ -105,6 +106,26 @@ function readAll() {
     }));
 
   return { project, phases };
+}
+
+// 把 due date 統一成 "YYYY-MM-DD"（給前端 <input type="date"> 用）
+function formatDueDate(val) {
+  if (val == null || val === '') return '';
+  if (Object.prototype.toString.call(val) === '[object Date]') {
+    return Utilities.formatDate(val, 'Asia/Taipei', 'yyyy-MM-dd');
+  }
+  var s = String(val).trim();
+  var m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (m) {
+    var mm = m[2].length === 1 ? '0' + m[2] : m[2];
+    var dd = m[3].length === 1 ? '0' + m[3] : m[3];
+    return m[1] + '-' + mm + '-' + dd;
+  }
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd');
+  }
+  return '';
 }
 
 // 把 start/end 統一成 "YYYY/MM"，避免 Sheet 把 2026/04 自動轉成 Date 之後變成
@@ -183,7 +204,7 @@ function writePhaseData(ss, phases) {
       p.objective || ''
     ]);
     (p.tasks || []).forEach(t => {
-      taskRows.push([p.id, t.id, t.name, t.status, t.note || '']);
+      taskRows.push([p.id, t.id, t.name, t.status, t.note || '', t.due ? "'" + formatDueDate(t.due) : '']);
     });
     (p.metrics || []).forEach((m, mi) => {
       metricRows.push([p.id, mi + 1, m.name, m.target]);

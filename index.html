@@ -179,9 +179,42 @@
     padding: 9px 10px;
     border-radius: 6px;
     border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s;
   }
   .task:hover { background: #fafbfc; }
   .task:last-child { border-bottom: none; }
+  .task.dragging { opacity: 0.4; }
+  .task.drop-before { box-shadow: 0 -2px 0 #2563eb; }
+  .task.drop-after { box-shadow: 0 2px 0 #2563eb; }
+  .task-handle {
+    color: #cbd5e1;
+    cursor: grab;
+    user-select: none;
+    font-size: 14px;
+    padding: 2px 2px;
+    margin-top: 1px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .task:hover .task-handle { color: #94a3b8; }
+  .task-handle:active { cursor: grabbing; }
+  .task-due {
+    font: inherit;
+    font-size: 12px;
+    color: #64748b;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-family: inherit;
+    cursor: pointer;
+    align-self: flex-start;
+    margin-top: 1px;
+  }
+  .task-due:hover { border-color: #94a3b8; background: #fef3c7; }
+  .task-due:focus { outline: none; border-color: #fde047; box-shadow: 0 0 0 2px #fde047; background: #fef9c3; }
+  .task-due.overdue { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+  .task-due.done-due { color: #94a3b8; text-decoration: line-through; }
   .task-status {
     width: 18px; height: 18px;
     border-radius: 50%;
@@ -691,7 +724,31 @@ function normalizePhases() {
   data.phases.forEach(p => {
     p.start = normalizeMonth(p.start);
     p.end = normalizeMonth(p.end);
+    (p.tasks || []).forEach(t => {
+      t.due = normalizeDueDate(t.due);
+    });
   });
+}
+
+// 把 due 日期標準化為 "YYYY-MM-DD"
+function normalizeDueDate(val) {
+  if (val == null) return '';
+  const s = String(val).trim();
+  if (!s) return '';
+  const m = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (m) {
+    const mm = String(m[2]).padStart(2, '0');
+    const dd = String(m[3]).padStart(2, '0');
+    return `${m[1]}-${mm}-${dd}`;
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
+  }
+  return '';
 }
 
 function getByPath(obj, path) {
@@ -845,15 +902,32 @@ function renderPhases() {
         <span class="metric-target" contenteditable="true" data-phase-metric="${pi}.${mi}.target">${escapeHTML(m.target)}</span>
       </div>`).join('');
 
-    const tasksHTML = p.tasks.map(t => `
-      <div class="task">
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const tasksHTML = p.tasks.map((t, ti) => {
+      const due = t.due || '';
+      let dueClass = '';
+      if (t.status === 'done' && due) dueClass = 'done-due';
+      else if (due && due < todayISO) dueClass = 'overdue';
+      return `
+      <div class="task" draggable="true"
+           data-drag-phase="${p.id}" data-drag-task-idx="${ti}"
+           ondragstart="onTaskDragStart(event)"
+           ondragend="onTaskDragEnd(event)"
+           ondragover="onTaskDragOver(event)"
+           ondragleave="onTaskDragLeave(event)"
+           ondrop="onTaskDrop(event)">
+        <div class="task-handle" title="拖曳排序">⋮⋮</div>
         <div class="task-status ${t.status}" onclick="cycleStatus('${p.id}', ${t.id})" title="點擊切換狀態"></div>
         <div class="task-content">
           <div class="task-name ${t.status === 'done' ? 'done' : ''}" contenteditable="true" data-task="${p.id}.${t.id}.name">${escapeHTML(t.name)}</div>
           <div class="task-note" contenteditable="true" data-task="${p.id}.${t.id}.note" data-placeholder="備註...">${escapeHTML(t.note || '')}</div>
         </div>
+        <input type="date" class="task-due ${dueClass}" value="${escapeHTML(due)}"
+               data-due="${p.id}.${t.id}" onchange="onTaskDueChange(event)"
+               title="完成日">
         <div class="task-delete" onclick="deleteTask('${p.id}', ${t.id})" title="刪除">×</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     const risksHTML = (p.risks || []).map((r, ri) => `
       <div class="risk-item">⚠ <span contenteditable="true" data-risk="${pi}.${ri}">${escapeHTML(r)}</span></div>`).join('');
@@ -949,6 +1023,78 @@ function onDateChange(e) {
   data.phases[pi][field] = normalized;
   renderGantt();
   scheduleSave(); // 非編輯模式會自己 no-op
+}
+
+function onTaskDueChange(e) {
+  const [pid, tid] = e.target.dataset.due.split('.');
+  const phase = data.phases.find(p => p.id === pid);
+  if (!phase) return;
+  const task = phase.tasks.find(t => t.id == tid);
+  if (!task) return;
+  task.due = e.target.value || '';
+  renderPhases();
+  scheduleSave();
+}
+
+let taskDrag = null; // { phaseId, taskIdx }
+
+function onTaskDragStart(e) {
+  taskDrag = {
+    phaseId: e.currentTarget.dataset.dragPhase,
+    taskIdx: Number(e.currentTarget.dataset.dragTaskIdx)
+  };
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.stopPropagation();
+}
+
+function onTaskDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.task').forEach(r => r.classList.remove('drop-before', 'drop-after'));
+  taskDrag = null;
+}
+
+function onTaskDragOver(e) {
+  if (!taskDrag) return;
+  if (e.currentTarget.dataset.dragPhase !== taskDrag.phaseId) return; // 僅同階段可排序
+  e.preventDefault();
+  e.stopPropagation();
+  e.dataTransfer.dropEffect = 'move';
+  const row = e.currentTarget;
+  const idx = Number(row.dataset.dragTaskIdx);
+  if (idx === taskDrag.taskIdx) return;
+  const rect = row.getBoundingClientRect();
+  const isAfter = (e.clientY - rect.top) > rect.height / 2;
+  document.querySelectorAll('.task').forEach(r => r.classList.remove('drop-before', 'drop-after'));
+  row.classList.add(isAfter ? 'drop-after' : 'drop-before');
+}
+
+function onTaskDragLeave(e) {
+  e.currentTarget.classList.remove('drop-before', 'drop-after');
+}
+
+function onTaskDrop(e) {
+  if (!taskDrag) return;
+  if (e.currentTarget.dataset.dragPhase !== taskDrag.phaseId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const row = e.currentTarget;
+  const targetIdx = Number(row.dataset.dragTaskIdx);
+  if (targetIdx === taskDrag.taskIdx) return;
+  const rect = row.getBoundingClientRect();
+  const isAfter = (e.clientY - rect.top) > rect.height / 2;
+
+  const phase = data.phases.find(p => p.id === taskDrag.phaseId);
+  if (!phase) return;
+  const dragged = phase.tasks.splice(taskDrag.taskIdx, 1)[0];
+  let insertAt = targetIdx;
+  if (taskDrag.taskIdx < targetIdx) insertAt = targetIdx - 1;
+  if (isAfter) insertAt += 1;
+  insertAt = Math.max(0, Math.min(insertAt, phase.tasks.length));
+  phase.tasks.splice(insertAt, 0, dragged);
+
+  renderPhases();
+  scheduleSave();
 }
 
 function cycleStatus(phaseId, taskId) {
