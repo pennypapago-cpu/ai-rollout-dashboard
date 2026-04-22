@@ -80,8 +80,8 @@ function readAll() {
     .map(p => ({
       id: String(p.id),
       name: String(p.name),
-      start: String(p.start),
-      end: String(p.end),
+      start: formatMonth(p.start),
+      end: formatMonth(p.end),
       team: String(p.team),
       color: String(p.color),
       expanded: p.expanded === true || String(p.expanded).toLowerCase() === 'true',
@@ -105,6 +105,26 @@ function readAll() {
     }));
 
   return { project, phases };
+}
+
+// 把 start/end 統一成 "YYYY/MM"，避免 Sheet 把 2026/04 自動轉成 Date 之後變成
+// "Wed Apr 01 2026 00:00:00 GMT+0800 (台北標準時間)" 這種長字串
+function formatMonth(val) {
+  if (val == null || val === '') return '';
+  if (Object.prototype.toString.call(val) === '[object Date]') {
+    return Utilities.formatDate(val, 'Asia/Taipei', 'yyyy/MM');
+  }
+  var s = String(val).trim();
+  var m = s.match(/(\d{4})[\/\-](\d{1,2})/);
+  if (m) {
+    var mm = m[2].length === 1 ? '0' + m[2] : m[2];
+    return m[1] + '/' + mm;
+  }
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return Utilities.formatDate(d, 'Asia/Taipei', 'yyyy/MM');
+  }
+  return s;
 }
 
 function rowsAsObjects(ss, name) {
@@ -155,8 +175,8 @@ function writePhaseData(ss, phases) {
       pi + 1,
       p.id,
       p.name,
-      p.start,
-      p.end,
+      "'" + formatMonth(p.start),
+      "'" + formatMonth(p.end),
       p.team,
       p.color,
       p.expanded === true,

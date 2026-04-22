@@ -225,6 +225,21 @@
   [contenteditable]:hover { background: #fef3c7; }
   [contenteditable]:focus { background: #fef9c3; box-shadow: 0 0 0 2px #fde047; }
 
+  .phase-date {
+    font: inherit;
+    font-size: 12px;
+    color: #64748b;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 2px 4px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .phase-date:hover:not(:disabled) { border-color: #94a3b8; background: #fef3c7; }
+  .phase-date:focus { outline: none; border-color: #fde047; box-shadow: 0 0 0 2px #fde047; background: #fef9c3; }
+  .phase-date:disabled { background: transparent; border-color: transparent; color: #64748b; cursor: default; padding: 2px 0; opacity: 1; }
+
   /* 唯讀模式：關閉所有編輯 UI */
   body:not(.edit-mode) [contenteditable] { cursor: default; }
   body:not(.edit-mode) [contenteditable]:hover,
@@ -535,6 +550,7 @@ function applyEditModeDOM() {
   document.querySelectorAll('[contenteditable]').forEach(el => {
     el.contentEditable = inEdit ? 'true' : 'false';
   });
+  // 日期 picker 永遠可選（非編輯模式下變更只會存在本機，可用「匯出 JSON」保存）
   const btn = $('edit-mode-btn');
   if (btn) {
     btn.textContent = inEdit ? '🔓 編輯中（點擊鎖回）' : '🔒 唯讀';
@@ -568,6 +584,7 @@ async function reloadData() {
   try {
     const d = await loadData();
     data = d;
+    normalizePhases();
     renderAll();
     applyEditModeDOM();
     setSaveStatus('已載入 ' + new Date().toLocaleTimeString(), 'ok');
@@ -625,6 +642,44 @@ function toggleEditMode() {
   }
 }
 function escapeHTML(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+// 把任意日期字串正規化成 "YYYY/MM"
+// 支援：2026/04、2026-04、2026/04/01、Date().toString()、ISO 字串等
+function normalizeMonth(val) {
+  if (val == null) return '';
+  const s = String(val).trim();
+  if (!s) return '';
+  // YYYY/MM 或 YYYY-MM（只取前兩段）
+  const ymd = s.match(/(\d{4})[\/\-](\d{1,2})/);
+  if (ymd) {
+    const y = ymd[1];
+    const m = String(ymd[2]).padStart(2, '0');
+    return `${y}/${m}`;
+  }
+  // 退而求其次：讓 Date 自己解析
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}/${m}`;
+  }
+  return s;
+}
+
+// <input type="month"> 需要 "YYYY-MM" 格式
+function toMonthInputValue(val) {
+  const n = normalizeMonth(val);
+  return n.replace('/', '-');
+}
+
+// 把所有 phase 的 start/end 標準化（資料進來的時候呼叫一次）
+function normalizePhases() {
+  if (!data || !Array.isArray(data.phases)) return;
+  data.phases.forEach(p => {
+    p.start = normalizeMonth(p.start);
+    p.end = normalizeMonth(p.end);
+  });
+}
 
 function getByPath(obj, path) {
   return path.split('.').reduce((o, k) => o && o[k], obj);
@@ -731,7 +786,7 @@ function renderPhases() {
           <div class="phase-title-wrap">
             <div class="phase-title" contenteditable="true" data-phase="${pi}.name" onclick="event.stopPropagation()">${escapeHTML(p.name)}</div>
             <div class="phase-sub">
-              <span>📅 <span contenteditable="true" data-phase="${pi}.start" onclick="event.stopPropagation()">${escapeHTML(p.start)}</span> ~ <span contenteditable="true" data-phase="${pi}.end" onclick="event.stopPropagation()">${escapeHTML(p.end)}</span></span>
+              <span>📅 <input type="month" class="phase-date" data-phase-date="${pi}.start" value="${toMonthInputValue(p.start)}" onclick="event.stopPropagation()" onchange="onDateChange(event)"> ~ <input type="month" class="phase-date" data-phase-date="${pi}.end" value="${toMonthInputValue(p.end)}" onclick="event.stopPropagation()" onchange="onDateChange(event)"></span>
               <span>👥 <span contenteditable="true" data-phase="${pi}.team" onclick="event.stopPropagation()">${escapeHTML(p.team)}</span></span>
               ${statusBadge}
             </div>
@@ -809,6 +864,14 @@ function onEditBlur(e) {
   if (changed) scheduleSave();
 }
 
+function onDateChange(e) {
+  const [pi, field] = e.target.dataset.phaseDate.split('.');
+  const normalized = normalizeMonth(e.target.value);
+  data.phases[pi][field] = normalized;
+  renderGantt();
+  scheduleSave(); // 非編輯模式會自己 no-op
+}
+
 function cycleStatus(phaseId, taskId) {
   if (!isEditMode()) return;
   const order = ['todo', 'in-progress', 'done'];
@@ -872,6 +935,7 @@ function importJSON(e) {
       const loaded = JSON.parse(evt.target.result);
       if (!loaded.phases || !Array.isArray(loaded.phases)) throw new Error('格式錯誤');
       data = loaded;
+      normalizePhases();
       renderAll();
       scheduleSave();
       alert('匯入成功！' + (isEditMode() ? '\n資料會自動寫回 Google Sheet。' : ''));
@@ -899,11 +963,13 @@ function renderAll() {
 }
 
 // 初始化：先顯示本機預設資料，再嘗試從 Google Sheet 讀最新
+normalizePhases();
 renderAll();
 if (WEBAPP_URL) {
   loadData().then(d => {
     if (d) {
       data = d;
+      normalizePhases();
       renderAll();
       setSaveStatus('已載入 ' + new Date().toLocaleTimeString(), 'ok');
     }
