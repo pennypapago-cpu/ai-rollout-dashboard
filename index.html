@@ -77,8 +77,21 @@
     gap: 8px;
     margin-bottom: 6px;
     align-items: center;
+    border-radius: 6px;
+    transition: background 0.15s, transform 0.15s;
   }
-  .gantt-label { font-size: 13px; color: #334155; font-weight: 500; padding-left: 4px; }
+  .gantt-row.dragging { opacity: 0.4; }
+  .gantt-row.drop-before { box-shadow: 0 -2px 0 #2563eb; }
+  .gantt-row.drop-after { box-shadow: 0 2px 0 #2563eb; }
+  .gantt-label {
+    font-size: 13px; color: #334155; font-weight: 500; padding-left: 4px;
+    display: flex; align-items: center; gap: 6px;
+    cursor: grab;
+    user-select: none;
+  }
+  .gantt-label:active { cursor: grabbing; }
+  .gantt-handle { color: #cbd5e1; font-size: 14px; flex-shrink: 0; }
+  .gantt-label:hover .gantt-handle { color: #64748b; }
   .gantt-track { position: relative; height: 28px; background: #f1f5f9; border-radius: 6px; }
   .gantt-bar {
     position: absolute; top: 2px; bottom: 2px;
@@ -734,7 +747,7 @@ function renderOverall() {
 function renderGantt() {
   const monthHeader = MONTHS.map(m => `<div>${m.split('/')[1]}月</div>`).join('');
   let html = `<div class="gantt-header"><div>階段</div>${monthHeader}</div>`;
-  data.phases.forEach(p => {
+  data.phases.forEach((p, i) => {
     const startIdx = MONTHS.indexOf(p.start);
     const endIdx = MONTHS.indexOf(p.end);
     const s = startIdx >= 0 ? startIdx : 0;
@@ -743,14 +756,80 @@ function renderGantt() {
     const width = (e - s + 1) * (100 / MONTHS.length);
     const shortName = p.name.replace(/^階段 \d+：/, '');
     html += `
-      <div class="gantt-row">
-        <div class="gantt-label">${escapeHTML(p.name)}</div>
+      <div class="gantt-row" draggable="true" data-gantt-index="${i}"
+           ondragstart="onGanttDragStart(event)"
+           ondragend="onGanttDragEnd(event)"
+           ondragover="onGanttDragOver(event)"
+           ondragleave="onGanttDragLeave(event)"
+           ondrop="onGanttDrop(event)"
+           title="可拖曳調整順序">
+        <div class="gantt-label"><span class="gantt-handle">⋮⋮</span>${escapeHTML(p.name)}</div>
         <div class="gantt-track">
           <div class="gantt-bar" style="background:${p.color};left:${left}%;width:${width}%">${escapeHTML(shortName)} · ${escapeHTML(p.team)}</div>
         </div>
       </div>`;
   });
   $('gantt').innerHTML = html;
+}
+
+let ganttDragIndex = null;
+
+function onGanttDragStart(e) {
+  ganttDragIndex = Number(e.currentTarget.dataset.ganttIndex);
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(ganttDragIndex));
+}
+
+function onGanttDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.gantt-row').forEach(r => {
+    r.classList.remove('drop-before', 'drop-after');
+  });
+  ganttDragIndex = null;
+}
+
+function onGanttDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const row = e.currentTarget;
+  const idx = Number(row.dataset.ganttIndex);
+  if (ganttDragIndex == null || idx === ganttDragIndex) return;
+  const rect = row.getBoundingClientRect();
+  const isAfter = (e.clientY - rect.top) > rect.height / 2;
+  document.querySelectorAll('.gantt-row').forEach(r => {
+    r.classList.remove('drop-before', 'drop-after');
+  });
+  row.classList.add(isAfter ? 'drop-after' : 'drop-before');
+}
+
+function onGanttDragLeave(e) {
+  e.currentTarget.classList.remove('drop-before', 'drop-after');
+}
+
+function onGanttDrop(e) {
+  e.preventDefault();
+  const row = e.currentTarget;
+  const targetIdx = Number(row.dataset.ganttIndex);
+  const rect = row.getBoundingClientRect();
+  const isAfter = (e.clientY - rect.top) > rect.height / 2;
+  if (ganttDragIndex == null || targetIdx === ganttDragIndex) return;
+
+  const dragged = data.phases.splice(ganttDragIndex, 1)[0];
+  let insertAt = targetIdx;
+  if (ganttDragIndex < targetIdx) insertAt = targetIdx - 1;
+  if (isAfter) insertAt += 1;
+  insertAt = Math.max(0, Math.min(insertAt, data.phases.length));
+  data.phases.splice(insertAt, 0, dragged);
+
+  // 自動更新 "階段 N：..." 的編號前綴
+  data.phases.forEach((ph, i) => {
+    const suffix = ph.name.replace(/^階段 \d+：/, '');
+    ph.name = `階段 ${i + 1}：${suffix}`;
+  });
+
+  renderAll();
+  scheduleSave();
 }
 
 function renderPhases() {
