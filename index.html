@@ -49,7 +49,7 @@
   .progress-bar { height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
   .progress-fill { height: 100%; background: linear-gradient(90deg, #22c55e, #10b981); transition: width 0.4s; }
 
-  .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 0 24px 20px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; padding: 0 24px 20px; }
   .kpi { padding: 12px; border-radius: 10px; border: 1px solid #eef0f3; background: white; }
   .kpi-title { font-size: 12px; color: #64748b; font-weight: 600; margin-bottom: 4px; }
   .kpi-name { font-size: 13px; color: #0f172a; font-weight: 600; margin-bottom: 6px; }
@@ -62,7 +62,7 @@
   .gantt { padding: 8px 24px 24px; }
   .gantt-header {
     display: grid;
-    grid-template-columns: 200px repeat(7, 1fr);
+    grid-template-columns: 200px repeat(9, 1fr);
     gap: 4px;
     font-size: 11px;
     color: #64748b;
@@ -237,7 +237,7 @@
 
   @media (max-width: 900px) {
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-    .gantt-header { grid-template-columns: 120px repeat(7, 1fr); font-size: 10px; }
+    .gantt-header { grid-template-columns: 120px repeat(9, 1fr); font-size: 10px; }
     .gantt-row { grid-template-columns: 120px 1fr; }
     .gantt-label { font-size: 11px; }
   }
@@ -257,10 +257,10 @@
       <h1 contenteditable="true" data-path="project.name">AI 導入專案</h1>
       <div class="meta">
         <span>👤 負責人：<span contenteditable="true" data-path="project.owner">Penny</span></span>
-        <span>📅 時程：<span contenteditable="true" data-path="project.timeline">2026/04 - 2026/10（半年）</span></span>
+        <span>📅 時程：<span contenteditable="true" data-path="project.timeline">2026/04 - 2026/12（9 個月）</span></span>
         <span>💰 模式：<span contenteditable="true" data-path="project.mode">自建為主</span></span>
       </div>
-      <div class="vision" contenteditable="true" data-path="project.vision">五階段循序導入，以自動化取代重複勞動，讓團隊專注在需要人判斷的工作上。</div>
+      <div class="vision" contenteditable="true" data-path="project.vision">七階段循序導入，以自動化取代重複勞動，讓團隊專注在需要人判斷的工作上。</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="exportJSON()">⬇ 匯出 JSON</button>
@@ -280,7 +280,7 @@
       </div>
       <div class="progress-bar"><div class="progress-fill" id="overall-fill" style="width:0%"></div></div>
     </div>
-    <div class="section-title">五階段進度</div>
+    <div class="section-title">七階段進度</div>
     <div class="kpi-grid" id="kpi-grid"></div>
   </div>
 
@@ -297,15 +297,15 @@
 </div>
 
 <script>
-const MONTHS = ['2026/04','2026/05','2026/06','2026/07','2026/08','2026/09','2026/10'];
+const MONTHS = ['2026/04','2026/05','2026/06','2026/07','2026/08','2026/09','2026/10','2026/11','2026/12'];
 
 const DEFAULT_DATA = {
   project: {
     name: 'AI 導入專案',
     owner: 'Penny',
-    timeline: '2026/04 - 2026/10（半年）',
+    timeline: '2026/04 - 2026/12（9 個月）',
     mode: '自建為主',
-    vision: '分五階段循序導入 AI，以自動化取代重複勞動，讓團隊專注在需要人判斷的工作上。'
+    vision: '分七階段循序導入 AI，以自動化取代重複勞動，讓團隊專注在需要人判斷的工作上。'
   },
   phases: [
     {
@@ -449,6 +449,51 @@ const DEFAULT_DATA = {
         '主觀判斷類事務（考核、勞資）難以完全自動化',
         'HR 事務量小，ROI 可能不如前面階段'
       ]
+    },
+    {
+      id: 'production', name: '階段 6：生產部',
+      start: '2026/11', end: '2026/11',
+      team: '待定',
+      color: '#06b6d4',
+      expanded: false,
+      objective: '（待填寫）生產部 AI 導入目標：自動化排程、品管記錄、產能預測，讓生產端專注於品質與改善。',
+      metrics: [
+        { name: '（待填寫）指標 1', target: '—' },
+        { name: '（待填寫）指標 2', target: '—' },
+        { name: '（待填寫）指標 3', target: '—' }
+      ],
+      tasks: [
+        { id: 1, name: '生產部流程訪談與 SOP 梳理', status: 'todo', note: '' },
+        { id: 2, name: '生產排程 / 產能預測模型', status: 'todo', note: '' },
+        { id: 3, name: '品管記錄數位化與異常偵測', status: 'todo', note: '' },
+        { id: 4, name: '成效量測與迭代', status: 'todo', note: '' }
+      ],
+      risks: [
+        '（待填寫）風險項目'
+      ]
+    },
+    {
+      id: 'retail', name: '階段 7：直營部',
+      start: '2026/12', end: '2026/12',
+      team: '待定',
+      color: '#84cc16',
+      expanded: false,
+      objective: '（待填寫）直營部 AI 導入目標：門市營運、排班、顧客關係、銷售分析自動化，讓店長專注於現場服務與團隊帶領。',
+      metrics: [
+        { name: '（待填寫）指標 1', target: '—' },
+        { name: '（待填寫）指標 2', target: '—' },
+        { name: '（待填寫）指標 3', target: '—' }
+      ],
+      tasks: [
+        { id: 1, name: '直營部流程訪談與 SOP 梳理', status: 'todo', note: '' },
+        { id: 2, name: '門市銷售與庫存分析儀表板', status: 'todo', note: '' },
+        { id: 3, name: '排班 / 出勤自動化', status: 'todo', note: '' },
+        { id: 4, name: '顧客 CRM 與回訪提醒', status: 'todo', note: '' },
+        { id: 5, name: '成效量測與迭代', status: 'todo', note: '' }
+      ],
+      risks: [
+        '（待填寫）風險項目'
+      ]
     }
   ]
 };
@@ -521,8 +566,8 @@ function renderGantt() {
     const endIdx = MONTHS.indexOf(p.end);
     const s = startIdx >= 0 ? startIdx : 0;
     const e = endIdx >= 0 ? endIdx : s;
-    const left = s * (100 / 7);
-    const width = (e - s + 1) * (100 / 7);
+    const left = s * (100 / MONTHS.length);
+    const width = (e - s + 1) * (100 / MONTHS.length);
     const shortName = p.name.replace(/^階段 \d+：/, '');
     html += `
       <div class="gantt-row">
