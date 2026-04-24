@@ -215,27 +215,52 @@
   .task-due:focus { outline: none; border-color: #fde047; box-shadow: 0 0 0 2px #fde047; background: #fef9c3; }
   .task-due.overdue { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
   .task-due.done-due { color: #94a3b8; text-decoration: line-through; }
-  .task-status {
-    width: 18px; height: 18px;
-    border-radius: 50%;
-    border: 2px solid #cbd5e1;
+  .task-status-select {
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 20px 3px 9px;
+    border-radius: 999px;
+    border: 1px solid transparent;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    font-family: inherit;
     flex-shrink: 0;
-    background: white;
-    font-size: 10px;
-    color: white;
-    font-weight: 900;
-    margin-top: 2px;
-    transition: all 0.15s;
+    margin-top: 1px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-repeat: no-repeat;
+    background-position: right 5px center;
+    background-size: 8px 6px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 6'><path fill='%23475569' d='M0 0l4 6 4-6z'/></svg>");
+    transition: filter 0.15s, box-shadow 0.15s;
+    min-width: 68px;
   }
-  .task-status:hover { border-color: #64748b; }
-  .task-status.in-progress { border-color: #3b82f6; background: #3b82f6; }
-  .task-status.in-progress::after { content: '●'; font-size: 8px; color: white; }
-  .task-status.done { border-color: #10b981; background: #10b981; }
-  .task-status.done::after { content: '✓'; }
+  .task-status-select:hover { filter: brightness(0.96); }
+  .task-status-select:focus { outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,0.3); }
+  .task-status-select.s-todo { background-color: #f1f5f9; color: #64748b; }
+  .task-status-select.s-in-progress { background-color: #dbeafe; color: #1d4ed8; }
+  .task-status-select.s-review { background-color: #ede9fe; color: #6d28d9; }
+  .task-status-select.s-testing { background-color: #fef3c7; color: #92400e; }
+  .task-status-select.s-done { background-color: #d1fae5; color: #065f46; }
+
+  .task-owner {
+    font: inherit;
+    font-size: 12px;
+    color: #475569;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 2px 6px;
+    width: 80px;
+    font-family: inherit;
+    cursor: text;
+    align-self: flex-start;
+    margin-top: 1px;
+  }
+  .task-owner:hover { border-color: #94a3b8; background: #fef3c7; }
+  .task-owner:focus { outline: none; border-color: #fde047; box-shadow: 0 0 0 2px #fde047; background: #fef9c3; }
+  .task-owner::placeholder { color: #cbd5e1; }
   .task-content { flex: 1; min-width: 0; }
   .task-name { font-size: 13px; color: #1f2937; }
   .task-name.done { text-decoration: line-through; color: #94a3b8; }
@@ -290,7 +315,6 @@
   body:not(.edit-mode) [contenteditable] { cursor: default; }
   body:not(.edit-mode) [contenteditable]:hover,
   body:not(.edit-mode) [contenteditable]:focus { background: transparent; box-shadow: none; }
-  body:not(.edit-mode) .task-status { cursor: default; }
   body:not(.edit-mode) .task-delete,
   body:not(.edit-mode) .add-task { display: none !important; }
 
@@ -367,8 +391,10 @@
   </div>
 
   <div class="tip">
-    💡 <strong>使用提示</strong>：所有文字可直接點擊編輯。點擊任務左側圓圈可切換狀態（待辦 → 進行中 → 完成）。編輯內容僅保留在本次開啟期間，請用「匯出 JSON」保存進度，下次再「匯入 JSON」接續。
+    💡 <strong>使用提示</strong>：所有文字可直接點擊編輯。任務左側下拉可切換狀態（未執行 / 執行中 / 審核中 / 測試中 / 完成），右側可填寫負責人。編輯內容僅保留在本次開啟期間，請用「匯出 JSON」保存進度，下次再「匯入 JSON」接續。
   </div>
+
+  <datalist id="owner-suggestions"></datalist>
 
   <div id="phases"></div>
 </div>
@@ -719,6 +745,8 @@ function toMonthInputValue(val) {
 }
 
 // 把所有 phase 的 start/end 標準化（資料進來的時候呼叫一次）
+const VALID_STATUSES = ['todo', 'in-progress', 'review', 'testing', 'done'];
+
 function normalizePhases() {
   if (!data || !Array.isArray(data.phases)) return;
   data.phases.forEach(p => {
@@ -726,8 +754,24 @@ function normalizePhases() {
     p.end = normalizeMonth(p.end);
     (p.tasks || []).forEach(t => {
       t.due = normalizeDueDate(t.due);
+      t.owner = (t.owner == null ? '' : String(t.owner)).trim();
+      if (!VALID_STATUSES.includes(t.status)) t.status = 'todo';
     });
   });
+}
+
+function collectOwners() {
+  const set = new Set();
+  data.phases.forEach(p => (p.tasks || []).forEach(t => {
+    if (t.owner) set.add(t.owner);
+  }));
+  return Array.from(set).sort();
+}
+
+function renderOwnerSuggestions() {
+  const dl = document.getElementById('owner-suggestions');
+  if (!dl) return;
+  dl.innerHTML = collectOwners().map(o => `<option value="${escapeHTML(o)}">`).join('');
 }
 
 // 把 due 日期標準化為 "YYYY-MM-DD"
@@ -773,12 +817,12 @@ function calcOverall() {
 function calcPhase(phase) {
   const total = phase.tasks.length;
   const done = phase.tasks.filter(t => t.status === 'done').length;
-  const inProgress = phase.tasks.filter(t => t.status === 'in-progress').length;
+  const active = phase.tasks.filter(t => ['in-progress', 'review', 'testing'].includes(t.status)).length;
   const pct = total > 0 ? Math.round(done / total * 100) : 0;
   let status = 'todo';
   if (done === total && total > 0) status = 'done';
-  else if (done > 0 || inProgress > 0) status = 'in-progress';
-  return { total, done, inProgress, pct, status };
+  else if (done > 0 || active > 0) status = 'in-progress';
+  return { total, done, inProgress: active, pct, status };
 }
 
 function renderKPIs() {
@@ -908,6 +952,13 @@ function renderPhases() {
       let dueClass = '';
       if (t.status === 'done' && due) dueClass = 'done-due';
       else if (due && due < todayISO) dueClass = 'overdue';
+      const statusOptions = [
+        ['todo', '未執行'],
+        ['in-progress', '執行中'],
+        ['review', '審核中'],
+        ['testing', '測試中'],
+        ['done', '完成']
+      ].map(([v, label]) => `<option value="${v}"${t.status === v ? ' selected' : ''}>${label}</option>`).join('');
       return `
       <div class="task" draggable="true"
            data-drag-phase="${p.id}" data-drag-task-idx="${ti}"
@@ -917,11 +968,14 @@ function renderPhases() {
            ondragleave="onTaskDragLeave(event)"
            ondrop="onTaskDrop(event)">
         <div class="task-handle" title="拖曳排序">⋮⋮</div>
-        <div class="task-status ${t.status}" onclick="cycleStatus('${p.id}', ${t.id})" title="點擊切換狀態"></div>
+        <select class="task-status-select s-${t.status}" data-status="${p.id}.${t.id}" onchange="onStatusChange(event)" title="狀態">${statusOptions}</select>
         <div class="task-content">
           <div class="task-name ${t.status === 'done' ? 'done' : ''}" contenteditable="true" data-task="${p.id}.${t.id}.name">${escapeHTML(t.name)}</div>
           <div class="task-note" contenteditable="true" data-task="${p.id}.${t.id}.note" data-placeholder="備註...">${escapeHTML(t.note || '')}</div>
         </div>
+        <input type="text" class="task-owner" value="${escapeHTML(t.owner || '')}" placeholder="負責人"
+               list="owner-suggestions" data-owner="${p.id}.${t.id}" onchange="onOwnerChange(event)"
+               title="負責人">
         <input type="date" class="task-due ${dueClass}" value="${escapeHTML(due)}"
                data-due="${p.id}.${t.id}" onchange="onTaskDueChange(event)"
                title="完成日">
@@ -1097,13 +1151,25 @@ function onTaskDrop(e) {
   scheduleSave();
 }
 
-function cycleStatus(phaseId, taskId) {
-  if (!isEditMode()) return;
-  const order = ['todo', 'in-progress', 'done'];
-  const phase = data.phases.find(p => p.id === phaseId);
-  const task = phase.tasks.find(t => t.id === taskId);
-  task.status = order[(order.indexOf(task.status) + 1) % order.length];
+function onStatusChange(e) {
+  const [pid, tid] = e.target.dataset.status.split('.');
+  const phase = data.phases.find(p => p.id === pid);
+  if (!phase) return;
+  const task = phase.tasks.find(t => t.id == tid);
+  if (!task) return;
+  task.status = e.target.value;
   renderAll();
+  scheduleSave();
+}
+
+function onOwnerChange(e) {
+  const [pid, tid] = e.target.dataset.owner.split('.');
+  const phase = data.phases.find(p => p.id === pid);
+  if (!phase) return;
+  const task = phase.tasks.find(t => t.id == tid);
+  if (!task) return;
+  task.owner = (e.target.value || '').trim();
+  renderOwnerSuggestions();
   scheduleSave();
 }
 
@@ -1111,7 +1177,7 @@ function addTask(phaseId) {
   if (!isEditMode()) return;
   const phase = data.phases.find(p => p.id === phaseId);
   const nextId = Math.max(0, ...phase.tasks.map(t => t.id)) + 1;
-  phase.tasks.push({ id: nextId, name: '新任務', status: 'todo', note: '' });
+  phase.tasks.push({ id: nextId, name: '新任務', status: 'todo', note: '', owner: '', due: '' });
   renderAll();
   scheduleSave();
 }
@@ -1184,6 +1250,7 @@ function renderAll() {
   renderKPIs();
   renderGantt();
   renderPhases();
+  renderOwnerSuggestions();
   applyEditModeDOM();
 }
 

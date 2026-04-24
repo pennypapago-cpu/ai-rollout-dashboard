@@ -23,7 +23,7 @@ const EDIT_TOKEN = '請改成你自己的隨機字串_abc123';
 const SHEETS = {
   project: ['key', 'value'],
   phases: ['order', 'id', 'name', 'start', 'end', 'team', 'color', 'expanded', 'objective'],
-  tasks: ['phase_id', 'task_id', 'name', 'status', 'note', 'due'],
+  tasks: ['phase_id', 'task_id', 'name', 'status', 'note', 'due', 'owner'],
   metrics: ['phase_id', 'order', 'name', 'target'],
   risks: ['phase_id', 'order', 'text']
 };
@@ -93,7 +93,8 @@ function readAll() {
           name: String(t.name),
           status: String(t.status),
           note: String(t.note == null ? '' : t.note),
-          due: formatDueDate(t.due)
+          due: formatDueDate(t.due),
+          owner: String(t.owner == null ? '' : t.owner)
         })),
       metrics: metricRows
         .filter(m => String(m.phase_id) === String(p.id))
@@ -204,7 +205,7 @@ function writePhaseData(ss, phases) {
       p.objective || ''
     ]);
     (p.tasks || []).forEach(t => {
-      taskRows.push([p.id, t.id, t.name, t.status, t.note || '', t.due ? "'" + formatDueDate(t.due) : '']);
+      taskRows.push([p.id, t.id, t.name, t.status, t.note || '', t.due ? "'" + formatDueDate(t.due) : '', t.owner || '']);
     });
     (p.metrics || []).forEach((m, mi) => {
       metricRows.push([p.id, mi + 1, m.name, m.target]);
