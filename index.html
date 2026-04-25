@@ -1652,7 +1652,17 @@ function renderKanban() {
   });
 
   $('kanban-view').innerHTML = KANBAN_STATUSES.map(s => {
-    const items = allTasks.filter(({ task }) => task.status === s.id);
+    const items = allTasks
+      .filter(({ task }) => task.status === s.id)
+      .sort((a, b) => {
+        // 排序規則：有日期的依日期由早到晚 → 沒日期的排最後
+        const da = a.task.due || '';
+        const db = b.task.due || '';
+        if (!da && !db) return 0;
+        if (!da) return 1;   // a 沒日期 → 排後面
+        if (!db) return -1;  // b 沒日期 → 排後面
+        return da < db ? -1 : da > db ? 1 : 0;
+      });
     const cards = items.map(({ task, phase }) => {
       const due = task.due || '';
       const isOverdue = due && task.status !== 'done' && due < todayISO;
