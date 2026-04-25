@@ -334,6 +334,44 @@
     border-left: 3px solid #eab308;
   }
 
+  .readonly-banner {
+    display: none;
+    background: #fef2f2;
+    border-left: 3px solid #ef4444;
+    color: #991b1b;
+    padding: 11px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .readonly-banner strong { color: #7f1d1d; }
+  .readonly-banner .btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-color: #ef4444;
+    background: white;
+    color: #b91c1c;
+    font-weight: 600;
+  }
+  .readonly-banner .btn:hover { background: #ef4444; color: white; }
+  body:not(.edit-mode) .readonly-banner { display: flex; }
+
+  .task-status-select:disabled,
+  .task-owner:disabled,
+  .task-due:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  body:not(.edit-mode) .task-handle,
+  body:not(.edit-mode) .gantt-handle { cursor: not-allowed; opacity: 0.4; }
+  body:not(.edit-mode) .task,
+  body:not(.edit-mode) .gantt-row { cursor: default; }
+
   .history-modal {
     display: none;
     position: fixed; inset: 0;
@@ -475,8 +513,13 @@
     <div class="gantt" id="gantt"></div>
   </div>
 
+  <div class="readonly-banner">
+    <span>🔒 <strong>目前為唯讀模式</strong>：你無法編輯這份儀表板。如果這是預期外的狀態（例如 token 失效），請點右側按鈕重新進入編輯模式。</span>
+    <button class="btn" onclick="toggleEditMode()">開啟編輯模式</button>
+  </div>
+
   <div class="tip">
-    💡 <strong>使用提示</strong>：所有文字可直接點擊編輯。任務左側下拉可切換狀態（未執行 / 執行中 / 審核中 / 測試中 / 完成），右側可填寫負責人。編輯內容僅保留在本次開啟期間，請用「匯出 JSON」保存進度，下次再「匯入 JSON」接續。
+    💡 <strong>使用提示</strong>：所有文字可直接點擊編輯。任務左側下拉可切換狀態（未執行 / 執行中 / 審核中 / 測試中 / 完成），右側可填寫負責人。所有編輯會自動同步到 Google Sheet；想復原請點「📜 歷史版本」。
   </div>
 
   <datalist id="owner-suggestions"></datalist>
@@ -721,10 +764,17 @@ function applyEditModeDOM() {
   document.querySelectorAll('[contenteditable]').forEach(el => {
     el.contentEditable = inEdit ? 'true' : 'false';
   });
-  // 日期 picker 永遠可選（非編輯模式下變更只會存在本機，可用「匯出 JSON」保存）
+  // 唯讀模式：disable 所有編輯控制項
+  document.querySelectorAll('.task-status-select, .task-owner, .task-due, .phase-date').forEach(el => {
+    el.disabled = !inEdit;
+  });
+  // 拖曳：唯讀模式關閉
+  document.querySelectorAll('.task, .gantt-row').forEach(el => {
+    el.draggable = inEdit;
+  });
   const btn = $('edit-mode-btn');
   if (btn) {
-    btn.textContent = inEdit ? '🔓 編輯中（點擊鎖回）' : '🔒 唯讀';
+    btn.textContent = inEdit ? '🔓 編輯中（點擊鎖回）' : '🔒 唯讀（點擊開啟編輯）';
     btn.classList.toggle('on', inEdit);
   }
 }
@@ -975,6 +1025,7 @@ function renderGantt() {
 let ganttDragIndex = null;
 
 function onGanttDragStart(e) {
+  if (!isEditMode()) { e.preventDefault(); return; }
   ganttDragIndex = Number(e.currentTarget.dataset.ganttIndex);
   e.currentTarget.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
@@ -1192,6 +1243,7 @@ function onTaskDueChange(e) {
 let taskDrag = null; // { phaseId, taskIdx }
 
 function onTaskDragStart(e) {
+  if (!isEditMode()) { e.preventDefault(); return; }
   taskDrag = {
     phaseId: e.currentTarget.dataset.dragPhase,
     taskIdx: Number(e.currentTarget.dataset.dragTaskIdx)
