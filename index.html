@@ -213,8 +213,10 @@
   }
   .task-due:hover { border-color: #94a3b8; background: #fef3c7; }
   .task-due:focus { outline: none; border-color: #fde047; box-shadow: 0 0 0 2px #fde047; background: #fef9c3; }
-  .task-due.overdue { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
-  .task-due.done-due { color: #94a3b8; text-decoration: line-through; }
+  .task-due.due-red    { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+  .task-due.due-yellow { color: #92400e; border-color: #fde68a; background: #fffbeb; }
+  .task-due.due-green  { color: #166534; border-color: #bbf7d0; background: #f0fdf4; }
+  .task-due.done-due   { color: #94a3b8; text-decoration: line-through; }
   .task-status-select {
     font: inherit;
     font-size: 11px;
@@ -581,12 +583,12 @@
     padding: 1px 6px;
     border-radius: 4px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 600;
   }
-  .kanban-card-due.overdue {
-    background: #fef2f2;
-    color: #b91c1c;
-    border-color: #fecaca;
-  }
+  .kanban-card-due.due-red    { background: #fef2f2; color: #b91c1c; border-color: #fca5a5; }
+  .kanban-card-due.due-yellow { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
+  .kanban-card-due.due-green  { background: #f0fdf4; color: #166534; border-color: #86efac; }
+  .kanban-card-due.done-due   { background: #f1f5f9; color: #94a3b8; text-decoration: line-through; border-color: #e2e8f0; }
 
   body:not(.edit-mode) .kanban-card { cursor: default; }
   body:not(.edit-mode) .kanban-card:hover { transform: none; }
@@ -1244,12 +1246,9 @@ function renderPhases() {
         <span class="metric-target" contenteditable="true" data-phase-metric="${pi}.${mi}.target">${escapeHTML(m.target)}</span>
       </div>`).join('');
 
-    const todayISO = new Date().toISOString().slice(0, 10);
     const tasksHTML = p.tasks.map((t, ti) => {
       const due = t.due || '';
-      let dueClass = '';
-      if (t.status === 'done' && due) dueClass = 'done-due';
-      else if (due && due < todayISO) dueClass = 'overdue';
+      const dueClass = dueColorClass(due, t.status);
       const statusOptions = [
         ['todo', '未執行'],
         ['in-progress', '執行中'],
@@ -1621,6 +1620,28 @@ function resetData() {
   }
 }
 
+// ====== 到期日顏色分級 ======
+// 規則：≤2 天（含過期）→ 紅；≤5 天 → 黃；> 5 天 → 綠；完成 → 灰刪除線
+function daysUntilDue(due) {
+  if (!due) return null;
+  const m = String(due).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return null;
+  const dueDate = new Date(+m[1], +m[2] - 1, +m[3]);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.floor((dueDate - today) / 86400000);
+}
+
+function dueColorClass(due, status) {
+  if (!due) return '';
+  if (status === 'done') return 'done-due';
+  const days = daysUntilDue(due);
+  if (days === null) return '';
+  if (days <= 2) return 'due-red';
+  if (days <= 5) return 'due-yellow';
+  return 'due-green';
+}
+
 // ====== 視圖切換（階段檢視 / 看板檢視）======
 let currentView = 'list';
 
@@ -1665,7 +1686,7 @@ function renderKanban() {
       });
     const cards = items.map(({ task, phase }) => {
       const due = task.due || '';
-      const isOverdue = due && task.status !== 'done' && due < todayISO;
+      const dueClass = dueColorClass(due, task.status);
       const phaseShort = phase.name.replace(/^階段 \d+：/, '');
       return `
         <div class="kanban-card" draggable="true"
@@ -1677,7 +1698,7 @@ function renderKanban() {
           <div class="kanban-card-meta">
             <span class="kanban-phase-badge" style="background:${phase.color}">${escapeHTML(phaseShort)}</span>
             ${task.owner ? `<span class="kanban-card-owner">👤 ${escapeHTML(task.owner)}</span>` : ''}
-            ${due ? `<span class="kanban-card-due ${isOverdue ? 'overdue' : ''}">📅 ${escapeHTML(due)}</span>` : ''}
+            ${due ? `<span class="kanban-card-due ${dueClass}">📅 ${escapeHTML(due)}</span>` : ''}
           </div>
         </div>`;
     }).join('');
@@ -1734,9 +1755,12 @@ function onKanbanDrop(e) {
   if (!phase) return;
   const task = phase.tasks.find(t => t.id == kanbanDrag.taskId);
   if (!task || task.status === newStatus) return;
+  const oldStatus = task.status;
   task.status = newStatus;
-  renderAll();
+  renderAll(); // 同時更新階段檢視 + KPI + 整體進度
   scheduleSave();
+  const labelMap = { 'todo':'未執行','in-progress':'執行中','review':'審核中','testing':'測試中','done':'完成' };
+  setSaveStatus(`「${task.name.length > 12 ? task.name.slice(0,12)+'…' : task.name}」${labelMap[oldStatus]} → ${labelMap[newStatus]}（已同步）`, 'ok');
 }
 
 function renderAll() {
