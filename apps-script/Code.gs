@@ -25,16 +25,27 @@ const SHEETS = {
   phases: ['order', 'id', 'name', 'start', 'end', 'team', 'color', 'expanded', 'objective'],
   tasks: ['phase_id', 'task_id', 'name', 'status', 'note', 'due', 'owner'],
   metrics: ['phase_id', 'order', 'name', 'target'],
-  risks: ['phase_id', 'order', 'text']
+  risks: ['phase_id', 'order', 'text'],
+  history: ['timestamp', 'label', 'snapshot']
 };
+
+const HISTORY_MAX = 50; // 滾動保留最近 N 筆快照
 
 // ============ Web App endpoints ============
 
-function doGet() {
+function doGet(e) {
   try {
+    const action = e && e.parameter && e.parameter.action;
+    if (action === 'history') {
+      return jsonOut({ ok: true, history: listHistory() });
+    }
+    if (action === 'snapshot') {
+      const idx = Number(e.parameter.idx);
+      return jsonOut({ ok: true, snapshot: getHistorySnapshot(idx) });
+    }
     return jsonOut(readAll());
-  } catch (e) {
-    return jsonOut({ error: String(e) });
+  } catch (err) {
+    return jsonOut({ error: String(err) });
   }
 }
 
@@ -43,6 +54,14 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     if (body.token !== EDIT_TOKEN) {
       return jsonOut({ ok: false, error: 'Invalid token' });
+    }
+    if (body.action === 'restore') {
+      const snap = getHistorySnapshot(Number(body.idx));
+      if (!snap || !Array.isArray(snap.phases)) {
+        return jsonOut({ ok: false, error: 'Invalid snapshot' });
+      }
+      writeAll(snap, '還原前快照');
+      return jsonOut({ ok: true, restoredAt: new Date().toISOString() });
     }
     if (!body.data || !Array.isArray(body.data.phases)) {
       return jsonOut({ ok: false, error: 'Invalid data' });
@@ -164,10 +183,75 @@ function rowsAsObjects(ss, name) {
 
 // ============ Write ============
 
-function writeAll(data) {
+function writeAll(data, historyLabel) {
   const ss = SpreadsheetApp.getActive();
+  pushHistory(ss, historyLabel || '存檔前快照');
   writeProject(ss, data.project || {});
   writePhaseData(ss, data.phases || []);
+}
+
+// ============ History ============
+
+function ensureHistorySheet(ss) {
+  let sheet = ss.getSheetByName('history');
+  if (!sheet) {
+    sheet = ss.insertSheet('history');
+    sheet.getRange(1, 1, 1, 3).setValues([SHEETS.history]);
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 160);
+    sheet.setColumnWidth(2, 120);
+    sheet.setColumnWidth(3, 600);
+  }
+  return sheet;
+}
+
+function pushHistory(ss, label) {
+  try {
+    const sheet = ensureHistorySheet(ss);
+    const currentData = readAll(); // 把目前 sheet 狀態先 snapshot 起來
+    if (!currentData || !Array.isArray(currentData.phases) || currentData.phases.length === 0) {
+      return; // 空資料（例如初次 setup）就不存
+    }
+    const ts = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    sheet.appendRow([ts, label || '存檔前快照', JSON.stringify(currentData)]);
+    // 滾動：只保留最近 HISTORY_MAX 筆
+    const lastRow = sheet.getLastRow();
+    if (lastRow > HISTORY_MAX + 1) { // header + max
+      sheet.deleteRows(2, lastRow - 1 - HISTORY_MAX);
+    }
+  } catch (e) {
+    // 不讓 history 失敗影響主存檔
+  }
+}
+
+function listHistory() {
+  const ss = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('history');
+  if (!sheet) return [];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  return values.map((row, i) => {
+    let ts = row[0];
+    if (Object.prototype.toString.call(ts) === '[object Date]') {
+      ts = Utilities.formatDate(ts, 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    }
+    return {
+      idx: i + 2, // 對應 sheet row 編號（含 header）
+      ts: String(ts),
+      label: String(row[1] || '')
+    };
+  }).reverse(); // 最新在前
+}
+
+function getHistorySnapshot(idx) {
+  const ss = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('history');
+  if (!sheet) throw new Error('No history sheet');
+  if (!idx || idx < 2) throw new Error('Invalid history idx');
+  const json = sheet.getRange(idx, 3).getValue();
+  if (!json) throw new Error('History row empty');
+  return JSON.parse(json);
 }
 
 function writeProject(ss, project) {

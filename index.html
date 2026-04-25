@@ -334,6 +334,90 @@
     border-left: 3px solid #eab308;
   }
 
+  .history-modal {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .history-modal.open { display: flex; }
+  .history-content {
+    background: white;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+  }
+  .history-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid #f0f1f4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 16px;
+    color: #0f172a;
+  }
+  .history-close {
+    border: none; background: none;
+    font-size: 24px; line-height: 1;
+    color: #64748b; cursor: pointer;
+    padding: 0 4px;
+  }
+  .history-close:hover { color: #1f2937; }
+  .history-tip {
+    font-size: 12px;
+    color: #475569;
+    padding: 10px 20px;
+    background: #f8fafc;
+    border-bottom: 1px solid #f0f1f4;
+    line-height: 1.6;
+  }
+  .history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item:hover { background: #fafbfc; }
+  .history-ts {
+    font-size: 13px;
+    color: #1f2937;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    flex: 1;
+    min-width: 0;
+  }
+  .history-label {
+    font-size: 11px;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .history-empty,
+  .history-loading {
+    padding: 32px 20px;
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+  }
+
   @media (max-width: 900px) {
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }
     .gantt-header { grid-template-columns: 120px repeat(9, 1fr); font-size: 10px; }
@@ -369,6 +453,7 @@
         ⬆ 匯入 JSON
         <input type="file" accept=".json" onchange="importJSON(event)" style="display:none">
       </label>
+      <button class="btn" onclick="openHistory()">📜 歷史版本</button>
       <button class="btn" onclick="expandAll()">全部展開</button>
       <button class="btn" onclick="collapseAll()">全部收合</button>
       <button class="btn" onclick="window.print()">🖨 列印</button>
@@ -396,6 +481,17 @@
 
   <datalist id="owner-suggestions"></datalist>
 
+  <div id="history-modal" class="history-modal" onclick="onHistoryBackdrop(event)">
+    <div class="history-content">
+      <div class="history-header">
+        <span>📜 歷史版本</span>
+        <button class="history-close" onclick="closeHistory()" title="關閉">×</button>
+      </div>
+      <div class="history-tip">每次自動存檔前會 snapshot 一份，最多保留 50 筆。<br><strong>預覽</strong>：載入到畫面但不存回 Sheet（按「重新載入」可回到目前最新）。<br><strong>還原</strong>：寫回 Sheet（會先把當下狀態也存一份到歷史）。</div>
+      <div id="history-list" class="history-list"></div>
+    </div>
+  </div>
+
   <div id="phases"></div>
 </div>
 
@@ -406,6 +502,9 @@ const MONTHS = ['2026/04','2026/05','2026/06','2026/07','2026/08','2026/09','202
 // 部署 Apps Script 後，把 Web App URL 貼到這裡（空字串代表純本機模式）
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzkO6dh4FJ1W-0EhjkK0STWiTMuQ3xuHMDUO6xkYoJVcuBF55eSfiG_8tCnjAcDHZEc/exec';
 const TOKEN_STORAGE_KEY = 'ai_rollout_edit_token';
+// 自動填入 token：頁面開啟時直接進入編輯模式（任何人連到網址都可編輯）
+// 留空字串代表不自動填入，會走原本「點🔒輸入 token」的流程
+const AUTO_TOKEN = '請改成你自己的隨機字串_abc123';
 let SAVE_TIMER = null;
 
 const DEFAULT_DATA = {
@@ -1206,6 +1305,77 @@ function collapseAll() {
   renderPhases();
 }
 
+// ====== 歷史版本（History） ======
+async function openHistory() {
+  if (!WEBAPP_URL) { alert('未設定後端 WEBAPP_URL'); return; }
+  $('history-modal').classList.add('open');
+  $('history-list').innerHTML = '<div class="history-loading">載入中…</div>';
+  try {
+    const res = await fetch(WEBAPP_URL + '?action=history');
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '未知錯誤');
+    if (!json.history.length) {
+      $('history-list').innerHTML = '<div class="history-empty">尚無歷史版本（任何一次存檔後就會出現）</div>';
+      return;
+    }
+    $('history-list').innerHTML = json.history.map(h => `
+      <div class="history-item">
+        <span class="history-ts">${escapeHTML(h.ts)}</span>
+        <span class="history-label">${escapeHTML(h.label)}</span>
+        <button class="btn" onclick="previewHistory(${h.idx})">預覽</button>
+        <button class="btn btn-primary" onclick="restoreHistory(${h.idx})">還原</button>
+      </div>`).join('');
+  } catch (err) {
+    $('history-list').innerHTML = '<div class="history-empty">載入失敗：' + escapeHTML(err.message) + '</div>';
+  }
+}
+
+function closeHistory() {
+  $('history-modal').classList.remove('open');
+}
+
+function onHistoryBackdrop(e) {
+  if (e.target === e.currentTarget) closeHistory();
+}
+
+async function previewHistory(idx) {
+  if (!WEBAPP_URL) return;
+  setSaveStatus('預覽中…');
+  try {
+    const res = await fetch(WEBAPP_URL + '?action=snapshot&idx=' + idx);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '未知錯誤');
+    data = json.snapshot;
+    normalizePhases();
+    renderAll();
+    closeHistory();
+    setSaveStatus('已載入歷史版本（尚未還原；按「↻ 重新載入」可回到目前最新）', 'ok');
+  } catch (err) {
+    setSaveStatus('預覽失敗：' + err.message, 'err');
+  }
+}
+
+async function restoreHistory(idx) {
+  if (!confirm('確定要還原到此版本？\n目前的內容會被覆蓋（系統會先把當下狀態也存一份到歷史，所以還原本身也可以再還原）。')) return;
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (!token) { alert('需要編輯權限才能還原'); return; }
+  setSaveStatus('還原中…');
+  try {
+    const res = await fetch(WEBAPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token, action: 'restore', idx })
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '未知錯誤');
+    closeHistory();
+    await reloadData();
+    setSaveStatus('已還原 ' + new Date().toLocaleTimeString(), 'ok');
+  } catch (err) {
+    setSaveStatus('還原失敗：' + err.message, 'err');
+  }
+}
+
 function exportJSON() {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1254,7 +1424,12 @@ function renderAll() {
   applyEditModeDOM();
 }
 
-// 初始化：先顯示本機預設資料，再嘗試從 Google Sheet 讀最新
+// 初始化：自動進入編輯模式（如果有設定 AUTO_TOKEN）
+if (AUTO_TOKEN && !localStorage.getItem(TOKEN_STORAGE_KEY)) {
+  localStorage.setItem(TOKEN_STORAGE_KEY, AUTO_TOKEN);
+}
+
+// 先顯示本機預設資料，再嘗試從 Google Sheet 讀最新
 normalizePhases();
 renderAll();
 if (WEBAPP_URL) {
