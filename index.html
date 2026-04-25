@@ -1365,9 +1365,15 @@ async function openHistory() {
   try {
     const res = await fetch(WEBAPP_URL + '?action=history');
     const json = await res.json();
-    if (!json.ok) throw new Error(json.error || '未知錯誤');
+    if (!json.ok) {
+      // 偵測：如果後端回主資料（有 phases），代表 Apps Script 還沒重新部署
+      if (Array.isArray(json.phases)) {
+        throw new Error('Apps Script 尚未重新部署。請到 Apps Script → 部署 → 管理部署作業 → 點鉛筆編輯 → 版本選「新版本」→ 部署');
+      }
+      throw new Error(json.error || '未知錯誤');
+    }
     if (!json.history.length) {
-      $('history-list').innerHTML = '<div class="history-empty">尚無歷史版本（任何一次存檔後就會出現）</div>';
+      $('history-list').innerHTML = '<div class="history-empty">尚無歷史版本（從你下次編輯開始累積）</div>';
       return;
     }
     $('history-list').innerHTML = json.history.map(h => `
