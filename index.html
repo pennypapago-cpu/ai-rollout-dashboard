@@ -562,6 +562,31 @@
   .kanban-card-handle:hover { background: #eef2f7; }
   .kanban-card-handle:active { cursor: grabbing; }
   .kanban-handle-grip { color: #94a3b8; font-size: 14px; line-height: 1; }
+  .kanban-handle-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .kanban-card-pin {
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.25;
+    filter: grayscale(100%);
+    transition: opacity 0.15s, transform 0.15s, filter 0.15s;
+    user-select: none;
+  }
+  .kanban-card-pin:hover { opacity: 0.7; transform: scale(1.15); }
+  .kanban-card-pin.on { opacity: 1; filter: none; transform: rotate(-15deg); }
+  .kanban-card-pin.on:hover { transform: rotate(-15deg) scale(1.15); }
+  body:not(.edit-mode) .kanban-card-pin { pointer-events: none; }
+
+  .kanban-card.pinned { box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25); }
+  .kanban-card.pinned .kanban-card-handle {
+    background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%);
+    border-bottom-color: #fde68a;
+  }
+
   body:not(.edit-mode) .kanban-card-handle { cursor: default; opacity: 0.6; }
   body:not(.edit-mode) .kanban-card-handle:hover { background: #f8fafc; }
 
@@ -1135,6 +1160,7 @@ function normalizePhases() {
     (p.tasks || []).forEach(t => {
       t.due = normalizeDueDate(t.due);
       t.owner = (t.owner == null ? '' : String(t.owner)).trim();
+      t.pinned = (t.pinned === true || String(t.pinned).toLowerCase() === 'true');
       if (!VALID_STATUSES.includes(t.status)) t.status = 'todo';
     });
   });
@@ -1757,12 +1783,16 @@ function renderKanban() {
     const items = allTasks
       .filter(({ task }) => task.status === s.id)
       .sort((a, b) => {
-        // 排序規則：有日期的依日期由早到晚 → 沒日期的排最後
+        // 1. 置頂優先：pinned 的任務一律排在最上面
+        if (!!a.task.pinned !== !!b.task.pinned) {
+          return a.task.pinned ? -1 : 1;
+        }
+        // 2. 然後依日期由早到晚（沒日期的排最後）
         const da = a.task.due || '';
         const db = b.task.due || '';
         if (!da && !db) return 0;
-        if (!da) return 1;   // a 沒日期 → 排後面
-        if (!db) return -1;  // b 沒日期 → 排後面
+        if (!da) return 1;
+        if (!db) return -1;
         return da < db ? -1 : da > db ? 1 : 0;
       });
     const cards = items.map(({ task, phase }) => {
@@ -1771,7 +1801,7 @@ function renderKanban() {
       const phaseShort = phase.name.replace(/^階段 \d+：/, '');
       const tref = `${phase.id}.${task.id}`;
       return `
-        <div class="kanban-card" style="border-left-color:${phase.color}">
+        <div class="kanban-card ${task.pinned ? 'pinned' : ''}" style="border-left-color:${phase.color}">
           <div class="kanban-card-handle"
                draggable="true"
                data-kanban-phase="${phase.id}" data-kanban-task="${task.id}"
@@ -1779,7 +1809,14 @@ function renderKanban() {
                ondragend="onKanbanDragEnd(event)"
                title="拖曳到其他欄位改狀態">
             <span class="kanban-phase-badge" style="background:${phase.color}">${escapeHTML(phaseShort)}</span>
-            <span class="kanban-handle-grip">⋮⋮</span>
+            <span class="kanban-handle-right">
+              <span class="kanban-card-pin ${task.pinned ? 'on' : ''}"
+                    draggable="false"
+                    onmousedown="event.stopPropagation()"
+                    onclick="togglePin('${phase.id}', ${task.id}); event.stopPropagation();"
+                    title="${task.pinned ? '取消置頂' : '置頂到最上面'}">📌</span>
+              <span class="kanban-handle-grip">⋮⋮</span>
+            </span>
           </div>
           <div class="kanban-card-body">
             <div class="kanban-card-name" contenteditable="true"
@@ -1844,6 +1881,19 @@ function onKanbanDragOver(e) {
 
 function onKanbanDragLeave(e) {
   e.currentTarget.classList.remove('drop-target');
+}
+
+// 看板卡片置頂 ──────────────
+function togglePin(phaseId, taskId) {
+  if (!isEditMode()) return;
+  const phase = data.phases.find(p => p.id === phaseId);
+  if (!phase) return;
+  const task = phase.tasks.find(t => t.id == taskId);
+  if (!task) return;
+  task.pinned = !task.pinned;
+  renderAll();
+  scheduleSave();
+  setSaveStatus(task.pinned ? '已置頂' : '已取消置頂', 'ok');
 }
 
 // 看板卡片內聯編輯 ──────────────
