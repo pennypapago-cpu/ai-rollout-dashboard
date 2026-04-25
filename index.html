@@ -848,10 +848,10 @@ function toggleEditMode() {
     return;
   }
   if (isEditMode()) {
-    if (confirm('關閉編輯模式？（之後要編輯需重新輸入 Token）')) {
+    if (confirm('關閉編輯模式？\n\n注意：因為有設定 AUTO_TOKEN，重新整理後會自動回到編輯模式。\n如果要完全停用自動編輯，請移除 index.html 最上方的 AUTO_TOKEN。')) {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
       applyEditModeDOM();
-      setSaveStatus('已切回唯讀');
+      setSaveStatus('已切回唯讀（重新整理後會自動回到編輯模式）');
     }
   } else {
     const token = prompt('請輸入編輯 Token：');
@@ -1482,8 +1482,9 @@ function renderAll() {
   applyEditModeDOM();
 }
 
-// 初始化：自動進入編輯模式（如果有設定 AUTO_TOKEN）
-if (AUTO_TOKEN && !localStorage.getItem(TOKEN_STORAGE_KEY)) {
+// 初始化：強制進入編輯模式（每次開頁都覆寫 localStorage）
+// 確保即使先前存了錯的 token，也會被新的 AUTO_TOKEN 覆蓋掉
+if (AUTO_TOKEN) {
   localStorage.setItem(TOKEN_STORAGE_KEY, AUTO_TOKEN);
 }
 
