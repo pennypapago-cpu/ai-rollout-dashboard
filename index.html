@@ -545,10 +545,14 @@ const MONTHS = ['2026/04','2026/05','2026/06','2026/07','2026/08','2026/09','202
 // 部署 Apps Script 後，把 Web App URL 貼到這裡（空字串代表純本機模式）
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzkO6dh4FJ1W-0EhjkK0STWiTMuQ3xuHMDUO6xkYoJVcuBF55eSfiG_8tCnjAcDHZEc/exec';
 const TOKEN_STORAGE_KEY = 'ai_rollout_edit_token';
-// 自動填入 token：頁面開啟時直接進入編輯模式（任何人連到網址都可編輯）
-// 留空字串代表不自動填入，會走原本「點🔒輸入 token」的流程
-const AUTO_TOKEN = '53296137';
-let SAVE_TIMER = null;
+// Token 從 URL hash 取得（書籤 URL 格式：.../#edit=YOURTOKEN）
+// Token 不寫在原始碼裡，只有知道書籤網址的人能編輯，其他人只能讀
+function extractTokenFromURL() {
+  const hash = location.hash.slice(1);        // 去掉 #
+  const query = location.search.slice(1);     // 去掉 ?
+  const params = new URLSearchParams(hash + (hash && query ? '&' : '') + query);
+  return (params.get('edit') || params.get('token') || '').trim();
+}
 
 const DEFAULT_DATA = {
   project: {
@@ -816,9 +820,8 @@ async function reloadData() {
 
 function scheduleSave() {
   if (!isEditMode()) return;
-  clearTimeout(SAVE_TIMER);
-  setSaveStatus('編輯中…');
-  SAVE_TIMER = setTimeout(saveData, 800);
+  setSaveStatus('儲存中…');
+  saveData();  // 離開欄位/送出變更時立即存，不再延遲 800ms
 }
 
 async function saveData() {
@@ -848,10 +851,10 @@ function toggleEditMode() {
     return;
   }
   if (isEditMode()) {
-    if (confirm('關閉編輯模式？\n\n注意：因為有設定 AUTO_TOKEN，重新整理後會自動回到編輯模式。\n如果要完全停用自動編輯，請移除 index.html 最上方的 AUTO_TOKEN。')) {
+    if (confirm('關閉編輯模式？\n\n之後要重新開啟編輯，請回到你的書籤網址（含 #edit=xxx），或點下方按鈕重新輸入 Token。')) {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
       applyEditModeDOM();
-      setSaveStatus('已切回唯讀（重新整理後會自動回到編輯模式）');
+      setSaveStatus('已切回唯讀');
     }
   } else {
     const token = prompt('請輸入編輯 Token：');
@@ -1482,10 +1485,11 @@ function renderAll() {
   applyEditModeDOM();
 }
 
-// 初始化：強制進入編輯模式（每次開頁都覆寫 localStorage）
-// 確保即使先前存了錯的 token，也會被新的 AUTO_TOKEN 覆蓋掉
-if (AUTO_TOKEN) {
-  localStorage.setItem(TOKEN_STORAGE_KEY, AUTO_TOKEN);
+// 初始化：如果 URL 有 token（書籤網址），存進 localStorage
+// localStorage 會在同一個瀏覽器記住，之後就算網址被改成不帶 hash 也還是編輯模式
+const urlToken = extractTokenFromURL();
+if (urlToken) {
+  localStorage.setItem(TOKEN_STORAGE_KEY, urlToken);
 }
 
 // 先顯示本機預設資料，再嘗試從 Google Sheet 讀最新
