@@ -456,6 +456,145 @@
     font-size: 13px;
   }
 
+  /* ====== 看板檢視 ====== */
+  .view-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .view-tab {
+    padding: 8px 16px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    color: #475569;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .view-tab:hover { background: #f8fafc; border-color: #cbd5e1; }
+  .view-tab.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: white;
+    font-weight: 600;
+  }
+
+  #kanban-view {
+    display: none;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  #kanban-view.active { display: grid; }
+
+  .kanban-col {
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 12px;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  .kanban-col.drop-target {
+    background: #eff6ff;
+    box-shadow: inset 0 0 0 2px #2563eb;
+  }
+  .kanban-col-header {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px;
+  }
+  .kanban-col-count {
+    background: white;
+    color: #475569;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .kanban-col-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .kanban-empty {
+    text-align: center;
+    color: #cbd5e1;
+    font-size: 12px;
+    padding: 24px 0;
+  }
+
+  .kanban-card {
+    background: white;
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    cursor: grab;
+    border-left: 3px solid #cbd5e1;
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .kanban-card:hover {
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
+  }
+  .kanban-card:active { cursor: grabbing; }
+  .kanban-card.dragging { opacity: 0.4; }
+  .kanban-card-name {
+    font-size: 13px;
+    color: #1f2937;
+    line-height: 1.45;
+    margin-bottom: 8px;
+  }
+  .kanban-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: 11px;
+    align-items: center;
+  }
+  .kanban-phase-badge {
+    padding: 2px 7px;
+    border-radius: 4px;
+    color: white;
+    font-weight: 600;
+    font-size: 10px;
+  }
+  .kanban-card-owner {
+    background: #f1f5f9;
+    color: #475569;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .kanban-card-due {
+    background: #f8fafc;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .kanban-card-due.overdue {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fecaca;
+  }
+
+  body:not(.edit-mode) .kanban-card { cursor: default; }
+  body:not(.edit-mode) .kanban-card:hover { transform: none; }
+
+  @media (max-width: 1100px) {
+    #kanban-view.active { grid-template-columns: repeat(2, 1fr); }
+  }
+
   @media (max-width: 900px) {
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }
     .gantt-header { grid-template-columns: 120px repeat(9, 1fr); font-size: 10px; }
@@ -535,7 +674,13 @@
     </div>
   </div>
 
+  <div class="view-tabs">
+    <button class="view-tab active" data-view="list" onclick="setView('list')">📋 階段檢視</button>
+    <button class="view-tab" data-view="kanban" onclick="setView('kanban')">🗂 看板檢視</button>
+  </div>
+
   <div id="phases"></div>
+  <div id="kanban-view" style="display:none"></div>
 </div>
 
 <script>
@@ -1476,11 +1621,120 @@ function resetData() {
   }
 }
 
+// ====== 視圖切換（階段檢視 / 看板檢視）======
+let currentView = 'list';
+
+function setView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+  $('phases').style.display = view === 'list' ? '' : 'none';
+  $('kanban-view').classList.toggle('active', view === 'kanban');
+  $('kanban-view').style.display = view === 'kanban' ? 'grid' : 'none';
+  if (view === 'kanban') renderKanban();
+}
+
+const KANBAN_STATUSES = [
+  { id: 'todo',         label: '未執行', color: '#64748b' },
+  { id: 'in-progress',  label: '執行中', color: '#1d4ed8' },
+  { id: 'review',       label: '審核中', color: '#6d28d9' },
+  { id: 'testing',      label: '測試中', color: '#92400e' },
+  { id: 'done',         label: '完成',   color: '#065f46' }
+];
+
+function renderKanban() {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  // 按階段順序聚合所有任務
+  const allTasks = [];
+  data.phases.forEach(p => {
+    (p.tasks || []).forEach(t => allTasks.push({ task: t, phase: p }));
+  });
+
+  $('kanban-view').innerHTML = KANBAN_STATUSES.map(s => {
+    const items = allTasks.filter(({ task }) => task.status === s.id);
+    const cards = items.map(({ task, phase }) => {
+      const due = task.due || '';
+      const isOverdue = due && task.status !== 'done' && due < todayISO;
+      const phaseShort = phase.name.replace(/^階段 \d+：/, '');
+      return `
+        <div class="kanban-card" draggable="true"
+             style="border-left-color:${phase.color}"
+             data-kanban-phase="${phase.id}" data-kanban-task="${task.id}"
+             ondragstart="onKanbanDragStart(event)"
+             ondragend="onKanbanDragEnd(event)">
+          <div class="kanban-card-name">${escapeHTML(task.name)}</div>
+          <div class="kanban-card-meta">
+            <span class="kanban-phase-badge" style="background:${phase.color}">${escapeHTML(phaseShort)}</span>
+            ${task.owner ? `<span class="kanban-card-owner">👤 ${escapeHTML(task.owner)}</span>` : ''}
+            ${due ? `<span class="kanban-card-due ${isOverdue ? 'overdue' : ''}">📅 ${escapeHTML(due)}</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="kanban-col" data-status="${s.id}"
+           ondragover="onKanbanDragOver(event)"
+           ondragleave="onKanbanDragLeave(event)"
+           ondrop="onKanbanDrop(event)">
+        <div class="kanban-col-header" style="color:${s.color}">
+          <span>${s.label}</span>
+          <span class="kanban-col-count">${items.length}</span>
+        </div>
+        <div class="kanban-col-body">
+          ${cards || '<div class="kanban-empty">—</div>'}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+let kanbanDrag = null;
+
+function onKanbanDragStart(e) {
+  if (!isEditMode()) { e.preventDefault(); return; }
+  kanbanDrag = {
+    phaseId: e.currentTarget.dataset.kanbanPhase,
+    taskId: e.currentTarget.dataset.kanbanTask
+  };
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onKanbanDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('drop-target'));
+  kanbanDrag = null;
+}
+
+function onKanbanDragOver(e) {
+  if (!kanbanDrag) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drop-target');
+}
+
+function onKanbanDragLeave(e) {
+  e.currentTarget.classList.remove('drop-target');
+}
+
+function onKanbanDrop(e) {
+  if (!kanbanDrag) return;
+  e.preventDefault();
+  const newStatus = e.currentTarget.dataset.status;
+  const phase = data.phases.find(p => p.id === kanbanDrag.phaseId);
+  if (!phase) return;
+  const task = phase.tasks.find(t => t.id == kanbanDrag.taskId);
+  if (!task || task.status === newStatus) return;
+  task.status = newStatus;
+  renderAll();
+  scheduleSave();
+}
+
 function renderAll() {
   renderOverall();
   renderKPIs();
   renderGantt();
   renderPhases();
+  if (currentView === 'kanban') renderKanban();
   renderOwnerSuggestions();
   applyEditModeDOM();
 }
