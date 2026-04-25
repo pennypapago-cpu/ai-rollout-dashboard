@@ -760,13 +760,21 @@ const MONTHS = ['2026/04','2026/05','2026/06','2026/07','2026/08','2026/09','202
 // 部署 Apps Script 後，把 Web App URL 貼到這裡（空字串代表純本機模式）
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzkO6dh4FJ1W-0EhjkK0STWiTMuQ3xuHMDUO6xkYoJVcuBF55eSfiG_8tCnjAcDHZEc/exec';
 const TOKEN_STORAGE_KEY = 'ai_rollout_edit_token';
-// Token 從 URL hash 取得（書籤 URL 格式：.../#edit=YOURTOKEN）
-// Token 不寫在原始碼裡，只有知道書籤網址的人能編輯，其他人只能讀
+// 使用者面前看到的「密碼」（簡單好記）
+const EDIT_PASSWORD = '0808';
+// 對應 Apps Script EDIT_TOKEN（後端真正驗證用）
+const SECRET_TOKEN = '53296137';
+// 把使用者輸入翻譯成真正的 backend token
+function translateToken(input) {
+  if (!input) return '';
+  return input === EDIT_PASSWORD ? SECRET_TOKEN : input;
+}
+// Token 從 URL hash 取得（書籤 URL 格式：.../#edit=0808）
 function extractTokenFromURL() {
   const hash = location.hash.slice(1);        // 去掉 #
   const query = location.search.slice(1);     // 去掉 ?
   const params = new URLSearchParams(hash + (hash && query ? '&' : '') + query);
-  return (params.get('edit') || params.get('token') || '').trim();
+  return translateToken((params.get('edit') || params.get('token') || '').trim());
 }
 
 const DEFAULT_DATA = {
@@ -1066,17 +1074,21 @@ function toggleEditMode() {
     return;
   }
   if (isEditMode()) {
-    if (confirm('關閉編輯模式？\n\n之後要重新開啟編輯，請回到你的書籤網址（含 #edit=xxx），或點下方按鈕重新輸入 Token。')) {
+    if (confirm('關閉編輯模式？\n\n之後要重新開啟，請點🔒按鈕並輸入密碼。')) {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
       applyEditModeDOM();
       setSaveStatus('已切回唯讀');
     }
   } else {
-    const token = prompt('請輸入編輯 Token：');
-    if (token && token.trim()) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
+    const pwd = prompt('請輸入密碼：');
+    if (pwd === null) return; // 取消
+    const token = translateToken(pwd.trim());
+    if (token === SECRET_TOKEN) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, SECRET_TOKEN);
       applyEditModeDOM();
-      setSaveStatus('編輯模式已開啟');
+      setSaveStatus('編輯模式已開啟（自動儲存）', 'ok');
+    } else {
+      alert('密碼錯誤');
     }
   }
 }
@@ -1119,6 +1131,7 @@ function normalizePhases() {
   data.phases.forEach(p => {
     p.start = normalizeMonth(p.start);
     p.end = normalizeMonth(p.end);
+    p.expanded = false; // 每次開頁面都全部收合（使用者可在頁內展開，不會持久化）
     (p.tasks || []).forEach(t => {
       t.due = normalizeDueDate(t.due);
       t.owner = (t.owner == null ? '' : String(t.owner)).trim();
