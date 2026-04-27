@@ -748,7 +748,7 @@
   </div>
 
   <div class="readonly-banner">
-    <span>🔒 <strong>目前為唯讀模式</strong>：你無法編輯這份儀表板。如果這是預期外的狀態（例如 token 失效），請點右側按鈕重新進入編輯模式。</span>
+    <span>🔒 <strong>目前為唯讀模式</strong>。要編輯請<strong>點任意欄位</strong>輸入密碼，或點右側按鈕。</span>
     <button class="btn" onclick="toggleEditMode()">開啟編輯模式</button>
   </div>
 
@@ -1031,9 +1031,13 @@ function applyEditModeDOM() {
   document.querySelectorAll('[contenteditable]').forEach(el => {
     el.contentEditable = inEdit ? 'true' : 'false';
   });
-  // 唯讀模式：disable 所有編輯控制項
+  // 唯讀模式：保持元件可被點擊（click 會被全域攔截 → 跳密碼框）
+  // 唯一例外：date 設為 readOnly 避免 picker 跳出來
   document.querySelectorAll('.task-status-select, .task-owner, .task-due, .phase-date, .kanban-card-owner-edit, .kanban-card-due-edit').forEach(el => {
-    el.disabled = !inEdit;
+    el.disabled = false;
+    if (el.tagName === 'INPUT' && (el.type === 'date' || el.type === 'month' || el.type === 'text')) {
+      el.readOnly = !inEdit;
+    }
   });
   // 拖曳：唯讀模式關閉
   document.querySelectorAll('.task, .gantt-row').forEach(el => {
@@ -1107,6 +1111,46 @@ async function saveData() {
     setSaveStatus('儲存失敗：' + e.message, 'err');
   }
 }
+
+// ====== 唯讀 → 點任意欄位跳密碼框 ======
+function promptForPassword() {
+  const pwd = prompt('請輸入密碼：');
+  if (pwd === null) return; // 取消
+  const token = translateToken(pwd.trim());
+  if (token === SECRET_TOKEN) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, SECRET_TOKEN);
+    applyEditModeDOM();
+    setSaveStatus('編輯模式已開啟（自動儲存）', 'ok');
+  } else {
+    alert('密碼錯誤');
+  }
+}
+
+// 判斷該 click 是否需要編輯權限
+function isClickRequiringEdit(target) {
+  // 通行區（不需要編輯權限）：工具列、歷史視窗、視圖切換、警告 banner、提示、KPI、甘特、進度、看板欄位 header
+  if (target.closest('.toolbar, #history-modal, .view-tabs, .readonly-banner, .tip, .kpi-grid, .gantt-track, .progress-section, .kanban-col-header')) return false;
+  // 命中編輯元件
+  if (target.matches('input, select, textarea')) return true;
+  if (target.closest('[contenteditable]')) return true;
+  if (target.closest('.add-task, .task-delete, .kanban-card-pin')) return true;
+  return false;
+}
+
+// 全域攔截：唯讀模式下點任意編輯欄位 → 跳密碼框
+['mousedown', 'click', 'focusin'].forEach(evt => {
+  document.addEventListener(evt, (e) => {
+    if (isEditMode()) return;
+    if (!isClickRequiringEdit(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.target.blur) e.target.blur();
+    if (evt === 'mousedown') {
+      // 用 setTimeout 避免在事件處理中卡住
+      setTimeout(promptForPassword, 0);
+    }
+  }, true);
+});
 
 function toggleEditMode() {
   if (!WEBAPP_URL) {
@@ -1985,12 +2029,9 @@ function renderAll() {
   applyEditModeDOM();
 }
 
-// 初始化：如果 URL 有 token（書籤網址），存進 localStorage
-// localStorage 會在同一個瀏覽器記住，之後就算網址被改成不帶 hash 也還是編輯模式
-const urlToken = extractTokenFromURL();
-if (urlToken) {
-  localStorage.setItem(TOKEN_STORAGE_KEY, urlToken);
-}
+// 初始化：每次開頁面都強制清除舊 token，確保永遠以「唯讀模式」開始
+// 使用者要編輯時，點任一欄位會跳密碼框（或點🔒按鈕）
+localStorage.removeItem(TOKEN_STORAGE_KEY);
 
 // 先顯示本機預設資料，再嘗試從 Google Sheet 讀最新
 normalizePhases();
